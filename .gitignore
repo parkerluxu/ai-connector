@@ -1,0 +1,7 @@
+dist/
+coverage.out
+*.exe
+*.exe~
+*.test
+*.out
+.DS_Store
