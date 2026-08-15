@@ -30,9 +30,23 @@ Connector 只发起出站 HTTPS/WSS 连接，因此通常不需要为电脑开�
 
 ## 支持平台与安装
 
-官方发布包支持 Windows、Linux 和 macOS。到
-[GitHub Releases](https://github.com/parkerluxu/ai-connector/releases) 下载与你的
-系统和 CPU 架构匹配的压缩包，解压后在终端运行二进制文件：
+每个 [GitHub Release](https://github.com/parkerluxu/ai-connector/releases) 都提供
+Windows 和 Linux 的独立可执行文件，不需要解压。请下载与系统和 CPU 架构匹配的
+文件：
+
+| 平台 | 发布文件 |
+| --- | --- |
+| Windows x64 | `ai-connector_<version>_windows_amd64.exe` |
+| Windows ARM64 | `ai-connector_<version>_windows_arm64.exe` |
+| Linux x64 | `ai-connector_<version>_linux_amd64` |
+| Linux ARM64 | `ai-connector_<version>_linux_arm64` |
+
+Linux 下载后先授予执行权限。macOS 用户可从源码构建；当前 Release 不提供 macOS
+预编译文件。
+
+```bash
+chmod +x ai-connector_<version>_linux_<arch>
+```
 
 ```powershell
 # Windows PowerShell
@@ -40,7 +54,7 @@ Connector 只发起出站 HTTPS/WSS 连接，因此通常不需要为电脑开�
 ```
 
 ```bash
-# Linux / macOS
+# Linux（macOS 从源码构建后同样使用此命令）
 ./ai-connector version
 ```
 
@@ -155,7 +169,7 @@ Connector 提供当前用户级别的服务安装，不需要把 Connector 部�
 ```
 
 ```bash
-# Linux：systemd user unit；macOS：LaunchAgent
+# Linux：systemd user unit
 ./ai-connector service install
 ./ai-connector service start
 ./ai-connector service status
@@ -180,7 +194,7 @@ ai-connector service uninstall
 - 打开 **查看详情** 时，Connector 按需读取本地会话记录，并只通过当前实时
   连接返回浏览器；详情不写入服务端数据库。
 - 对可继续的已结束会话使用 **继续原会话**，在本机启动 Codex resume 进程；
-  运行中可提交追加消息或请求终止。
+  运行中可以请求终止该受管进程。
 
 ### 设备管理
 
@@ -191,13 +205,17 @@ ai-connector service uninstall
 
 ## 6. 数据与安全边界
 
-Connector 会读取本地 Codex JSONL 以推导实时状态，发送的内容限于设备身份、
-会话 ID、工作目录/会话目录、来源、状态、时间戳和当前工具名称/状态。
+默认的实时状态同步只发送设备身份、会话 ID、工作目录/会话目录、来源、状态、
+时间戳和当前工具名称/状态。
 
-以下内容不会上传或写入看板数据库：
+当设备所有者在看板中主动点击 **查看详情** 时，Connector 才会按需读取该本地
+会话的一部分消息、工具调用和工具结果，并通过当前已认证的实时连接转发到该
+用户的浏览器。详情不会写入 Connector 元数据或服务端数据库，页面关闭后不作为
+历史记录保留。
 
-- 提示词、用户消息、模型回答和推理内容；
-- 工具参数、工具输出和原始 JSONL 行；
+以下内容不会作为默认状态上传，且不会持久化到看板数据库：
+
+- 推理内容和原始 JSONL 行；
 - 本地文件内容。
 
 实时观察状态只在 API 内存和当前浏览器页面中转发，不作为历史记录持久化。完整

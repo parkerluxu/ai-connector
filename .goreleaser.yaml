@@ -10,18 +10,17 @@ builds:
     binary: ai-connector
     env:
       - CGO_ENABLED=0
-    goos: [windows, darwin, linux]
+    goos: [windows, linux]
     goarch: [amd64, arm64]
     ldflags:
       - -s -w -X main.version={{ .Version }}
 
 archives:
-  - id: default
+  # Publish each platform binary as a direct Release asset rather than nesting
+  # it in an archive, so a user can download the exact executable they need.
+  - id: standalone-binaries
     ids: [ai-connector]
-    formats: [tar.gz]
-    format_overrides:
-      - goos: windows
-        formats: [zip]
+    formats: [binary]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:

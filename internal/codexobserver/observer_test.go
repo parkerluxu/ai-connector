@@ -197,11 +197,11 @@ func TestObserverDetailReadsOnlySupportedContentEvents(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	data := "{\"type\":\"session_meta\",\"payload\":{\"session_id\":\"sess_detail\",\"cwd\":\"C:/work\"}}\n" +
-		"{\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"Please inspect this task\"}}\n" +
-		"{\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"shell_command\",\"arguments\":\"{\\\"command\\\":\\\"dir\\\"}\"}}\n" +
-		"{\"type\":\"response_item\",\"payload\":{\"type\":\"function_call_output\",\"output\":\"file list\"}}\n" +
-		"{\"type\":\"response_item\",\"payload\":{\"type\":\"reasoning\",\"encrypted_content\":\"must not be exposed\"}}\n"
+	data := "{\"timestamp\":\"2026-08-12T09:00:00Z\",\"type\":\"session_meta\",\"payload\":{\"session_id\":\"sess_detail\",\"cwd\":\"C:/work\"}}\n" +
+		"{\"timestamp\":\"2026-08-12T09:00:01Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"Please inspect this task\"}}\n" +
+		"{\"timestamp\":\"2026-08-12T09:00:02Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"shell_command\",\"arguments\":\"{\\\"command\\\":\\\"dir\\\"}\"}}\n" +
+		"{\"timestamp\":\"2026-08-12T09:00:03Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call_output\",\"output\":\"file list\"}}\n" +
+		"{\"timestamp\":\"2026-08-12T09:00:04Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"reasoning\",\"encrypted_content\":\"must not be exposed\"}}\n"
 	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 		t.Fatal(err)
 	}
