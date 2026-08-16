@@ -2,11 +2,13 @@
 
 [中文使用说明](README.zh-CN.md) · [Privacy](PRIVACY.md) · [Security](SECURITY.md)
 
-AI Connector runs on the computer where Codex is installed. It reads local
-Codex session logs, derives session state, and sends it over an encrypted
-outbound WebSocket to the [AgentBoard dashboard](https://aiboard.agentcaseshare.cn/).
-It is a companion to Codex, not a replacement, and it never exposes a local
-terminal as a public service.
+AI Connector runs on the computer where AI agent CLIs are installed. It reads
+local Codex, Claude Code, and Gemini CLI session logs, derives session state,
+and sends it over an encrypted outbound WebSocket to the [AgentBoard dashboard](https://aiboard.agentcaseshare.cn/).
+It is a companion to those tools, not a replacement, and it never exposes a
+local terminal as a public service. The supported adapters, resume behavior,
+and privacy constraints are documented in
+[`docs/architecture/multi-agent-observation.md`](docs/architecture/multi-agent-observation.md).
 
 This guide describes the public production flow: Agent Case Share manages
 account sign-in and registration, AgentBoard manages device pairing and the

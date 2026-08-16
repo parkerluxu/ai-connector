@@ -1,9 +1,10 @@
 # AI Connector 中文使用说明
 
-AI Connector 是运行在 Codex 所在电脑上的本地连接器。它读取本机 Codex
-会话日志，提取会话状态，并通过加密的出站 WebSocket 发送到
-[AgentBoard 看板](https://aiboard.agentcaseshare.cn/)，让你在浏览器中查看实时会话。
-它不是 Codex 的替代品，也不会把本地终端暴露成公网服务。
+AI Connector 是运行在 AI Agent CLI 所在电脑上的本地连接器。它读取本机 Codex、
+Claude Code 和 Gemini CLI 会话日志，提取会话状态，并通过加密的出站 WebSocket
+发送到 [AgentBoard 看板](https://aiboard.agentcaseshare.cn/)，让你在浏览器中查看实时会话。
+它不是这些工具的替代品，也不会把本地终端暴露成公网服务。支持的适配器、续聊语义和
+隐私边界见 [`docs/architecture/multi-agent-observation.md`](docs/architecture/multi-agent-observation.md)。
 
 本文对应当前公开版本的实际流程：Agent Case Share 负责账号登录/注册，
 AgentBoard 负责设备配对和实时看板，AI Connector 负责本地观察与连接。

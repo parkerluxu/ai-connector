@@ -1,4 +1,5 @@
 dist/
+.agentboard/
 coverage.out
 *.exe
 *.exe~
