@@ -18,8 +18,11 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/agentboard/ai-connector/internal/claudeobserver"
 	"github.com/agentboard/ai-connector/internal/codexobserver"
 	"github.com/agentboard/ai-connector/internal/connectorconfig"
+	"github.com/agentboard/ai-connector/internal/geminiobserver"
+	"github.com/agentboard/ai-connector/internal/multiobserver"
 	"github.com/agentboard/ai-connector/internal/observerrelay"
 )
 
@@ -78,7 +81,9 @@ func doctor(args []string) error {
 	defer cancel()
 	result := map[string]any{
 		"api_url": config.APIURL, "ws_url": config.WSURL,
-		"configured": paired(config), "codex_sessions_root": codexobserver.DefaultSessionsRoot(),
+		"configured": paired(config), "agent_sessions_roots": map[string]string{
+			"codex": codexobserver.DefaultSessionsRoot(), "claude_code": claudeobserver.DefaultSessionsRoot(), "gemini_cli": geminiobserver.DefaultSessionsRoot(),
+		},
 	}
 	request, requestErr := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSuffix(config.APIURL, "/")+"/v1/health", nil)
 	if requestErr == nil {
@@ -116,7 +121,9 @@ func status() error {
 	config.FillDefaults()
 	return json.NewEncoder(os.Stdout).Encode(map[string]any{
 		"configured": paired(config), "device_id": config.DeviceID, "credential_id": config.CredentialID,
-		"api_url": config.APIURL, "ws_url": config.WSURL, "sessions_root": codexobserver.DefaultSessionsRoot(),
+		"api_url": config.APIURL, "ws_url": config.WSURL, "agent_sessions_roots": map[string]string{
+			"codex": codexobserver.DefaultSessionsRoot(), "claude_code": claudeobserver.DefaultSessionsRoot(), "gemini_cli": geminiobserver.DefaultSessionsRoot(),
+		},
 	})
 }
 
@@ -203,10 +210,10 @@ func observeStatus() error {
 	if !paired(config) {
 		return errors.New("connector is not paired; run ai-connector pair first")
 	}
-	observer, err := codexobserver.New(codexobserver.Config{
-		SessionsRoot: codexobserver.DefaultSessionsRoot(),
-		DeviceID:     config.DeviceID,
-		MetadataPath: ":memory:", // Status must not touch the running service metadata.
+	observer, err := multiobserver.New(multiobserver.Config{
+		CodexSessionsRoot: codexobserver.DefaultSessionsRoot(),
+		DeviceID:          config.DeviceID,
+		MetadataPath:      ":memory:", // Status must not touch the running service metadata.
 	})
 	if err != nil {
 		return err
@@ -216,7 +223,9 @@ func observeStatus() error {
 		return err
 	}
 	return json.NewEncoder(os.Stdout).Encode(map[string]any{
-		"configured": true, "sessions_root": codexobserver.DefaultSessionsRoot(),
+		"configured": true, "agent_sessions_roots": map[string]string{
+			"codex": codexobserver.DefaultSessionsRoot(), "claude_code": claudeobserver.DefaultSessionsRoot(), "gemini_cli": geminiobserver.DefaultSessionsRoot(),
+		},
 		"sessions_found": len(observer.Sessions()), "sessions": observer.Sessions(),
 	})
 }

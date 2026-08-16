@@ -18,58 +18,27 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/agentboard/ai-connector/internal/observation"
 	"github.com/agentboard/ai-connector/internal/observerstore"
 )
 
-type Status string
+type Status = observation.Status
+type ToolStatus = observation.ToolStatus
+type Tool = observation.Tool
+type ManagedProcess = observation.ManagedProcess
+type Session = observation.Session
 
 const (
-	StatusActive    Status = "active"
-	StatusIdle      Status = "idle"
-	StatusCompleted Status = "completed"
-	StatusAborted   Status = "aborted"
-	StatusUnknown   Status = "unknown"
+	StatusActive    = observation.StatusActive
+	StatusIdle      = observation.StatusIdle
+	StatusCompleted = observation.StatusCompleted
+	StatusAborted   = observation.StatusAborted
+	StatusUnknown   = observation.StatusUnknown
+	ToolRunning     = observation.ToolRunning
+	ToolCompleted   = observation.ToolCompleted
+	ToolFailed      = observation.ToolFailed
+	ToolUnknown     = observation.ToolUnknown
 )
-
-type ToolStatus string
-
-const (
-	ToolRunning   ToolStatus = "running"
-	ToolCompleted ToolStatus = "completed"
-	ToolFailed    ToolStatus = "failed"
-	ToolUnknown   ToolStatus = "unknown"
-)
-
-type Tool struct {
-	Name       string     `json:"name"`
-	Status     ToolStatus `json:"status"`
-	StartedAt  string     `json:"started_at,omitempty"`
-	FinishedAt string     `json:"finished_at,omitempty"`
-}
-
-type ManagedProcess struct {
-	PID          int      `json:"pid"`
-	StartedAt    string   `json:"started_at"`
-	Capabilities []string `json:"capabilities"`
-}
-
-// Session is intentionally an outbound DTO. It contains no transcript,
-// arguments, output, raw JSONL data, or source filename.
-type Session struct {
-	SessionID        string          `json:"session_id"`
-	DeviceID         string          `json:"device_id"`
-	SessionDirectory string          `json:"session_directory"`
-	Source           string          `json:"source"`
-	CWD              string          `json:"cwd"`
-	Title            string          `json:"title"`
-	Status           Status          `json:"status"`
-	StateConfidence  string          `json:"state_confidence"`
-	LastActivityAt   string          `json:"last_activity_at"`
-	ActiveTurnID     string          `json:"active_turn_id,omitempty"`
-	CurrentTool      *Tool           `json:"current_tool,omitempty"`
-	CanResume        bool            `json:"can_resume"`
-	ManagedProcess   *ManagedProcess `json:"managed_process,omitempty"`
-}
 
 type Config struct {
 	SessionsRoot string
@@ -176,6 +145,8 @@ func New(config Config) (*Observer, error) {
 }
 
 func (o *Observer) Close() error { return o.metadata.Close() }
+
+func (o *Observer) Agent() observation.Agent { return observation.AgentCodex }
 
 func (o *Observer) Updates() <-chan Session { return o.updates }
 func (o *Observer) Removals() <-chan string { return o.removals }
@@ -380,7 +351,7 @@ func (o *Observer) reduceLine(path string, line []byte) {
 		state.sourceSessionID = sourceSessionID
 		session := o.sessions[state.sessionID]
 		if session.SessionID == "" {
-			session = Session{SessionID: state.sessionID, DeviceID: o.config.DeviceID, SessionDirectory: sessionDirectory(o.config.SessionsRoot, path), Title: fmt.Sprintf("Codex session %d", len(o.sessions)+1), Status: StatusUnknown, StateConfidence: "inferred"}
+			session = Session{SessionID: state.sessionID, NativeSessionID: state.sessionID, Agent: observation.AgentCodex, DeviceID: o.config.DeviceID, SessionDirectory: sessionDirectory(o.config.SessionsRoot, path), Title: fmt.Sprintf("Codex session %d", len(o.sessions)+1), Status: StatusUnknown, StateConfidence: "inferred"}
 		}
 		session.CWD = cwd
 		session.Source = sourceValue(firstString(payload["source"], payload["origin"], payload["originator"], payload["client"], event["source"], event["originator"]))
@@ -500,6 +471,10 @@ func (o *Observer) markUnknown(path string) {
 }
 
 func (o *Observer) setSessionLocked(session Session) {
+	session.Agent = observation.AgentCodex
+	if session.NativeSessionID == "" {
+		session.NativeSessionID = session.SessionID
+	}
 	session.DeviceID = o.config.DeviceID
 	session.CanResume = session.Status != StatusActive && session.CWD != "" && session.SessionID != "" && session.ManagedProcess == nil
 	o.sessions[session.SessionID] = copySession(session)
@@ -550,16 +525,7 @@ func (o *Observer) hasLocalRolloutLocked(sessionID string) bool {
 }
 
 func copySession(session Session) Session {
-	if session.CurrentTool != nil {
-		tool := *session.CurrentTool
-		session.CurrentTool = &tool
-	}
-	if session.ManagedProcess != nil {
-		process := *session.ManagedProcess
-		process.Capabilities = append([]string(nil), process.Capabilities...)
-		session.ManagedProcess = &process
-	}
-	return session
+	return observation.CopySession(session)
 }
 
 func eventTime(event map[string]any) string {

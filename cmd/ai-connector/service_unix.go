@@ -35,7 +35,7 @@ func installService() error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	unit := fmt.Sprintf("[Unit]\nDescription=AgentBoard Codex observer\n\n[Service]\nExecStart=%q observe serve\nRestart=on-failure\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n", binary)
+	unit := fmt.Sprintf("[Unit]\nDescription=AgentBoard AI agent observer\n\n[Service]\nExecStart=%q observe serve\nRestart=on-failure\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n", binary)
 	if err := os.WriteFile(path, []byte(unit), 0o600); err != nil {
 		return err
 	}

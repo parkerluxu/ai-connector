@@ -11,6 +11,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/agentboard/ai-connector/internal/observation"
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/transform"
 )
@@ -21,19 +22,8 @@ const (
 	maxDetailTotalRunes   = 256 * 1024
 )
 
-type DetailEvent struct {
-	ID       string `json:"id"`
-	At       string `json:"at"`
-	Kind     string `json:"kind"`
-	Content  string `json:"content"`
-	ToolName string `json:"tool_name,omitempty"`
-}
-
-type SessionDetail struct {
-	SessionID string        `json:"session_id"`
-	Events    []DetailEvent `json:"events"`
-	Truncated bool          `json:"truncated"`
-}
+type DetailEvent = observation.DetailEvent
+type SessionDetail = observation.SessionDetail
 
 // Detail reads a single local JSONL file only when a device owner explicitly
 // asks for it. Its result is never stored in the observer metadata database.

@@ -2,7 +2,6 @@
 package observerrelay
 
 import (
-	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
@@ -11,14 +10,14 @@ import (
 	"fmt"
 	"io"
 	"net/url"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/agentboard/ai-connector/internal/codexobserver"
 	"github.com/agentboard/ai-connector/internal/connectorconfig"
+	"github.com/agentboard/ai-connector/internal/multiobserver"
+	"github.com/agentboard/ai-connector/internal/observation"
 	"github.com/agentboard/ai-connector/internal/processmanager"
 	"github.com/gorilla/websocket"
 )
@@ -71,7 +70,7 @@ func (b *limitedBuffer) String() string { return string(b.data) }
 
 type relay struct {
 	config      Config
-	observer    *codexobserver.Observer
+	observer    *multiobserver.Observer
 	writeMu     sync.Mutex
 	managedMu   sync.Mutex
 	managed     map[string]managedProcess
@@ -82,7 +81,7 @@ type relay struct {
 }
 
 func Run(ctx context.Context, config Config) error {
-	observer, err := codexobserver.New(codexobserver.Config{SessionsRoot: config.SessionsRoot, DeviceID: config.Connector.DeviceID})
+	observer, err := multiobserver.New(multiobserver.Config{CodexSessionsRoot: config.SessionsRoot, DeviceID: config.Connector.DeviceID})
 	if err != nil {
 		return err
 	}
@@ -90,7 +89,7 @@ func Run(ctx context.Context, config Config) error {
 	// Do not announce this device as available until its first snapshot can be
 	// served. Large local history trees otherwise make the browser time out.
 	if err := observer.Scan(); err != nil {
-		return fmt.Errorf("initial Codex session scan: %w", err)
+		return fmt.Errorf("initial agent session scan: %w", err)
 	}
 	r := &relay{config: config, observer: observer, managed: make(map[string]managedProcess), requests: make(map[string]time.Time)}
 	observerStop := make(chan struct{})
@@ -186,7 +185,7 @@ func (r *relay) forwardObservation(connection *websocket.Conn, stop <-chan struc
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	type pendingDelta struct {
-		session   *codexobserver.Session
+		session   *observation.Session
 		sessionID string
 	}
 	pending := make(map[string]pendingDelta)
@@ -282,7 +281,7 @@ func (r *relay) handleResume(connection *websocket.Conn, payload map[string]any)
 		r.sendError(connection, requestID, "session_not_found", "The observed session is no longer available")
 		return
 	}
-	if session.Status == codexobserver.StatusActive {
+	if session.Status == observation.StatusActive {
 		r.sendError(connection, requestID, "session_active", "The session is still active and cannot be resumed")
 		return
 	}
@@ -301,7 +300,11 @@ func (r *relay) handleResume(connection *websocket.Conn, payload map[string]any)
 		r.sendError(connection, requestID, "managed_process_exists", "The session already has a managed process")
 		return
 	}
-	command := resumeCommand(codexBinary(), sessionID, prompt)
+	command, err := r.observer.ResumeCommand(sessionID, prompt)
+	if err != nil {
+		r.sendError(connection, requestID, "resume_unsupported", "The local agent cannot resume this session")
+		return
+	}
 	command.Dir = session.CWD
 	command.Stdout = io.Discard
 	stderr := &limitedBuffer{}
@@ -311,13 +314,13 @@ func (r *relay) handleResume(connection *websocket.Conn, payload map[string]any)
 	r.observer.RegisterResume(sessionID, session.CWD, started)
 	if err := command.Start(); err != nil {
 		r.observer.CancelResume(sessionID, started)
-		r.sendError(connection, requestID, "resume_start_failed", "Could not start a local Codex resume process")
+		r.sendError(connection, requestID, "resume_start_failed", "Could not start a local agent resume process")
 		return
 	}
 	r.managedMu.Lock()
 	r.managed[sessionID] = managedProcess{command: command, started: started, requestID: requestID, stderr: stderr}
 	r.managedMu.Unlock()
-	r.observer.SetManaged(sessionID, &codexobserver.ManagedProcess{PID: command.Process.Pid, StartedAt: started.Format(time.RFC3339Nano), Capabilities: []string{"cancel"}})
+	r.observer.SetManaged(sessionID, &observation.ManagedProcess{PID: command.Process.Pid, StartedAt: started.Format(time.RFC3339Nano), Capabilities: []string{"cancel"}})
 	_ = r.write(connection, "observe.resume.result", map[string]any{"request_id": requestID, "session_id": sessionID, "status": "started"})
 	go r.watchManaged(connection, sessionID, command)
 }
@@ -330,7 +333,7 @@ func (r *relay) watchManaged(connection *websocket.Conn, sessionID string, comma
 	r.managedMu.Unlock()
 	r.observer.SetManaged(sessionID, nil)
 	if err != nil && exists && !process.cancelRequested {
-		r.sendError(connection, process.requestID, "resume_failed", resumeFailureMessage(err, process.stderr.String()))
+		r.sendError(connection, process.requestID, "resume_failed", r.observer.ResumeFailureMessage(sessionID, err, process.stderr.String()))
 	}
 }
 
@@ -418,49 +421,5 @@ func (r *relay) write(connection *websocket.Conn, messageType string, payload ma
 func stringPayload(payload map[string]any, key string) string {
 	value, _ := payload[key].(string)
 	return strings.TrimSpace(value)
-}
-func codexBinary() string {
-	if value := strings.TrimSpace(os.Getenv("AGENTBOARD_CODEX_BIN")); value != "" {
-		return value
-	}
-	return "codex"
-}
-
-func resumeCommand(binary, sessionID, prompt string) *exec.Cmd {
-	return exec.Command(binary, "exec", "resume", "--skip-git-repo-check", sessionID, prompt)
-}
-
-func resumeFailureMessage(commandErr error, stderr string) string {
-	for _, line := range reverseLines(stderr) {
-		if line = strings.TrimSpace(line); line != "" {
-			return "Codex resume failed: " + sanitizeDiagnostic(line)
-		}
-	}
-	return "Codex resume failed: " + commandErr.Error()
-}
-
-func reverseLines(value string) []string {
-	lines := bytes.Split([]byte(value), []byte{'\n'})
-	for left, right := 0, len(lines)-1; left < right; left, right = left+1, right-1 {
-		lines[left], lines[right] = lines[right], lines[left]
-	}
-	result := make([]string, len(lines))
-	for index, line := range lines {
-		result[index] = string(line)
-	}
-	return result
-}
-
-func sanitizeDiagnostic(value string) string {
-	value = strings.Map(func(r rune) rune {
-		if r < 32 || r == 127 {
-			return -1
-		}
-		return r
-	}, value)
-	if len([]rune(value)) > 512 {
-		return string([]rune(value)[:512]) + "..."
-	}
-	return value
 }
 func newID(prefix string) string { return fmt.Sprintf("%s_%d", prefix, time.Now().UnixNano()) }
