@@ -259,7 +259,7 @@ func service(args []string) error {
 }
 
 func paired(config connectorconfig.Config) bool {
-	return config.DeviceID != "" && config.CredentialID != "" && config.PrivateKey != ""
+	return config.DeviceID != "" && config.CredentialID != "" && (config.PrivateKey != "" || config.ProtectedPrivateKey != "")
 }
 
 func postJSON(endpoint string, payload map[string]any) error {
