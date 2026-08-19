@@ -275,6 +275,7 @@ new computer, install the Connector, generate a new pairing code, and run
 ## Links
 
 - [AgentBoard dashboard](https://aiboard.agentcaseshare.cn/)
+- [Detailed tutorial: monitor Codex, Claude Code, and Gemini CLI with AI Connector](docs/guides/using-ai-connector-with-agentboard.en.md)
 - [Chinese README](README.zh-CN.md)
 - [Privacy](PRIVACY.md)
 - [Security](SECURITY.md)

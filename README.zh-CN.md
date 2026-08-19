@@ -250,6 +250,7 @@ ai-connector service uninstall
 ## 相关链接
 
 - [AgentBoard 看板](https://aiboard.agentcaseshare.cn/)
+- [使用 AI Connector 监控 Codex、Claude Code 和 Gemini CLI 的详细教程](docs/guides/using-ai-connector-with-agentboard.zh-CN.md)
 - [英文 README](README.md)
 - [隐私说明](PRIVACY.md)
 - [安全策略](SECURITY.md)
