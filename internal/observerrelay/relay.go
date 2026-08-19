@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/url"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,8 @@ import (
 )
 
 const protocolVersion = "1.0"
+const resumeCooldown = 5 * time.Second
+const startCooldown = 5 * time.Second
 
 type Config struct {
 	Connector    connectorconfig.Config
@@ -69,15 +72,19 @@ func (b *limitedBuffer) Write(value []byte) (int, error) {
 func (b *limitedBuffer) String() string { return string(b.data) }
 
 type relay struct {
-	config      Config
-	observer    *multiobserver.Observer
-	writeMu     sync.Mutex
-	managedMu   sync.Mutex
-	managed     map[string]managedProcess
-	requestsMu  sync.Mutex
-	requests    map[string]time.Time
-	subscribeMu sync.RWMutex
-	subscribed  bool
+	config       Config
+	observer     *multiobserver.Observer
+	writeMu      sync.Mutex
+	managedMu    sync.Mutex
+	managed      map[string]managedProcess
+	starting     map[string]struct{}
+	cooldowns    map[string]time.Time
+	newStarting  map[string]struct{}
+	newCooldowns map[string]time.Time
+	requestsMu   sync.Mutex
+	requests     map[string]time.Time
+	subscribeMu  sync.RWMutex
+	subscribed   bool
 }
 
 func Run(ctx context.Context, config Config) error {
@@ -91,7 +98,11 @@ func Run(ctx context.Context, config Config) error {
 	if err := observer.Scan(); err != nil {
 		return fmt.Errorf("initial agent session scan: %w", err)
 	}
-	r := &relay{config: config, observer: observer, managed: make(map[string]managedProcess), requests: make(map[string]time.Time)}
+	r := &relay{
+		config: config, observer: observer, managed: make(map[string]managedProcess),
+		starting: make(map[string]struct{}), cooldowns: make(map[string]time.Time),
+		newStarting: make(map[string]struct{}), newCooldowns: make(map[string]time.Time), requests: make(map[string]time.Time),
+	}
 	observerStop := make(chan struct{})
 	defer close(observerStop)
 	go func() { _ = observer.Run(observerStop) }()
@@ -239,6 +250,8 @@ func (r *relay) readLoop(connection *websocket.Conn) error {
 			r.setSubscribed(false)
 		case "observe.detail":
 			r.handleDetail(connection, message.Payload)
+		case "observe.start":
+			r.handleStart(connection, message.Payload)
 		case "observe.resume":
 			r.handleResume(connection, message.Payload)
 		case "observe.managed_input":
@@ -246,6 +259,58 @@ func (r *relay) readLoop(connection *websocket.Conn) error {
 		case "observe.managed_cancel":
 			r.handleCancel(connection, message.Payload)
 		}
+	}
+}
+
+func (r *relay) handleStart(connection *websocket.Conn, payload map[string]any) {
+	requestID, cwd, prompt := stringPayload(payload, "request_id"), stringPayload(payload, "cwd"), stringPayload(payload, "prompt")
+	if !r.claimRequest(requestID) {
+		return
+	}
+	if cwd == "" || len([]rune(cwd)) > 1024 {
+		r.sendError(connection, requestID, "invalid_working_directory", "The working directory is invalid")
+		return
+	}
+	if prompt == "" || len([]rune(prompt)) > 16_384 {
+		r.sendError(connection, requestID, "invalid_prompt", "The initial prompt is invalid")
+		return
+	}
+	if code := r.reserveNewSession(cwd, time.Now()); code != "" {
+		r.sendError(connection, requestID, code, startReservationMessage(code))
+		return
+	}
+	reserved := true
+	defer func() {
+		if reserved {
+			r.releaseNewSession(cwd)
+		}
+	}()
+	command, err := r.observer.StartCommand(cwd, prompt)
+	if err != nil {
+		r.sendError(connection, requestID, "start_directory_not_observed", "The working directory is not an observed Codex directory")
+		return
+	}
+	command.Stdout = io.Discard
+	stderr := &limitedBuffer{}
+	command.Stderr = stderr
+	processmanager.Configure(command)
+	if err := command.Start(); err != nil {
+		r.releaseNewSession(cwd)
+		reserved = false
+		r.sendError(connection, requestID, "start_failed", "Could not start a new local Codex process")
+		return
+	}
+	reserved = false
+	_ = r.write(connection, "observe.start.result", map[string]any{"request_id": requestID, "cwd": cwd, "status": "started"})
+	go r.watchNewSession(connection, cwd, managedProcess{command: command, started: time.Now().UTC(), requestID: requestID, stderr: stderr})
+}
+
+func (r *relay) watchNewSession(connection *websocket.Conn, cwd string, process managedProcess) {
+	err := process.command.Wait()
+	r.releaseNewSessionAfterExit(cwd, time.Now())
+	if err != nil {
+		code, message := r.observer.StartFailure(err, process.stderr.String())
+		r.sendError(connection, process.requestID, code, message)
 	}
 }
 
@@ -293,13 +358,16 @@ func (r *relay) handleResume(connection *websocket.Conn, payload map[string]any)
 		r.sendError(connection, requestID, "invalid_prompt", "The continuation prompt is invalid")
 		return
 	}
-	r.managedMu.Lock()
-	_, exists := r.managed[sessionID]
-	r.managedMu.Unlock()
-	if exists {
-		r.sendError(connection, requestID, "managed_process_exists", "The session already has a managed process")
+	if code := r.reserveResume(sessionID, time.Now()); code != "" {
+		r.sendError(connection, requestID, code, resumeReservationMessage(code))
 		return
 	}
+	reserved := true
+	defer func() {
+		if reserved {
+			r.releaseResumeReservation(sessionID)
+		}
+	}()
 	command, err := r.observer.ResumeCommand(sessionID, prompt)
 	if err != nil {
 		r.sendError(connection, requestID, "resume_unsupported", "The local agent cannot resume this session")
@@ -317,9 +385,8 @@ func (r *relay) handleResume(connection *websocket.Conn, payload map[string]any)
 		r.sendError(connection, requestID, "resume_start_failed", "Could not start a local agent resume process")
 		return
 	}
-	r.managedMu.Lock()
-	r.managed[sessionID] = managedProcess{command: command, started: started, requestID: requestID, stderr: stderr}
-	r.managedMu.Unlock()
+	r.activateManagedResume(sessionID, managedProcess{command: command, started: started, requestID: requestID, stderr: stderr})
+	reserved = false
 	r.observer.SetManaged(sessionID, &observation.ManagedProcess{PID: command.Process.Pid, StartedAt: started.Format(time.RFC3339Nano), Capabilities: []string{"cancel"}})
 	_ = r.write(connection, "observe.resume.result", map[string]any{"request_id": requestID, "session_id": sessionID, "status": "started"})
 	go r.watchManaged(connection, sessionID, command)
@@ -327,13 +394,15 @@ func (r *relay) handleResume(connection *websocket.Conn, payload map[string]any)
 
 func (r *relay) watchManaged(connection *websocket.Conn, sessionID string, command *exec.Cmd) {
 	err := command.Wait()
-	r.managedMu.Lock()
-	process, exists := r.managed[sessionID]
-	delete(r.managed, sessionID)
-	r.managedMu.Unlock()
+	process, exists := r.releaseManagedResume(sessionID, time.Now())
 	r.observer.SetManaged(sessionID, nil)
 	if err != nil && exists && !process.cancelRequested {
-		r.sendError(connection, process.requestID, "resume_failed", r.observer.ResumeFailureMessage(sessionID, err, process.stderr.String()))
+		code, message := r.observer.ResumeFailure(sessionID, err, process.stderr.String())
+		if code == "session_writer_busy" {
+			// No child session can have been created when Codex rejects the writer.
+			r.observer.CancelResume(sessionID, process.started)
+		}
+		r.sendError(connection, process.requestID, code, message)
 	}
 }
 
@@ -396,6 +465,112 @@ func (r *relay) claimRequest(requestID string) bool {
 	}
 	r.requests[requestID] = now.Add(2 * time.Minute)
 	return true
+}
+
+// reserveResume serializes the gap before a child process is visible in managed.
+// It also prevents an immediately completed continuation from being restarted.
+func (r *relay) reserveResume(sessionID string, now time.Time) string {
+	r.managedMu.Lock()
+	defer r.managedMu.Unlock()
+	if _, exists := r.managed[sessionID]; exists {
+		return "managed_process_exists"
+	}
+	if _, exists := r.starting[sessionID]; exists {
+		return "session_resume_in_progress"
+	}
+	if until, exists := r.cooldowns[sessionID]; exists {
+		if now.Before(until) {
+			return "session_resume_cooling_down"
+		}
+		delete(r.cooldowns, sessionID)
+	}
+	r.starting[sessionID] = struct{}{}
+	return ""
+}
+
+func (r *relay) reserveNewSession(cwd string, now time.Time) string {
+	cwd = newSessionKey(cwd)
+	r.managedMu.Lock()
+	defer r.managedMu.Unlock()
+	if _, exists := r.newStarting[cwd]; exists {
+		return "new_session_in_progress"
+	}
+	if until, exists := r.newCooldowns[cwd]; exists {
+		if now.Before(until) {
+			return "new_session_cooling_down"
+		}
+		delete(r.newCooldowns, cwd)
+	}
+	r.newStarting[cwd] = struct{}{}
+	return ""
+}
+
+func (r *relay) releaseNewSession(cwd string) {
+	cwd = newSessionKey(cwd)
+	r.managedMu.Lock()
+	delete(r.newStarting, cwd)
+	r.managedMu.Unlock()
+}
+
+func (r *relay) releaseNewSessionAfterExit(cwd string, now time.Time) {
+	cwd = newSessionKey(cwd)
+	r.managedMu.Lock()
+	delete(r.newStarting, cwd)
+	r.newCooldowns[cwd] = now.Add(startCooldown)
+	r.managedMu.Unlock()
+}
+
+func newSessionKey(cwd string) string {
+	return strings.ToLower(filepath.Clean(strings.TrimSpace(cwd)))
+}
+
+func (r *relay) releaseResumeReservation(sessionID string) {
+	r.managedMu.Lock()
+	delete(r.starting, sessionID)
+	r.managedMu.Unlock()
+}
+
+func (r *relay) activateManagedResume(sessionID string, process managedProcess) {
+	r.managedMu.Lock()
+	delete(r.starting, sessionID)
+	r.managed[sessionID] = process
+	r.managedMu.Unlock()
+}
+
+func (r *relay) releaseManagedResume(sessionID string, now time.Time) (managedProcess, bool) {
+	r.managedMu.Lock()
+	defer r.managedMu.Unlock()
+	process, exists := r.managed[sessionID]
+	if !exists {
+		return managedProcess{}, false
+	}
+	delete(r.managed, sessionID)
+	r.cooldowns[sessionID] = now.Add(resumeCooldown)
+	return process, true
+}
+
+func resumeReservationMessage(code string) string {
+	switch code {
+	case "managed_process_exists":
+		return "The session already has a managed process"
+	case "session_resume_in_progress":
+		return "A continuation request for this session is already starting"
+	case "session_resume_cooling_down":
+		return "The session was just resumed. Wait a few seconds before continuing it again"
+	default:
+		return "The session cannot be continued right now"
+	}
+}
+
+func startReservationMessage(code string) string {
+	switch code {
+	case "new_session_in_progress":
+		return "A new session is already starting in this working directory"
+	case "new_session_cooling_down":
+		return "A new session was just started in this working directory. Wait a few seconds before starting another"
+	default:
+		return "A new session cannot be started in this working directory right now"
+	}
 }
 
 func (r *relay) setSubscribed(value bool) {

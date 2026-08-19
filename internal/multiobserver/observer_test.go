@@ -2,11 +2,14 @@ package multiobserver
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/agentboard/ai-connector/internal/observation"
 )
 
 func TestResumeCommandsAreFixedPerAgent(t *testing.T) {
@@ -58,6 +61,40 @@ func TestResumeCommandsAreFixedPerAgent(t *testing.T) {
 	}
 	if strings.Contains(string(payload), "claude_1") {
 		t.Fatalf("native session id leaked from observation payload: %s", payload)
+	}
+}
+
+func TestResumeFailureClassifiesCodexWriterConflicts(t *testing.T) {
+	observer := &Observer{sessions: map[string]observation.Session{
+		"session_1": {Agent: observation.AgentCodex},
+	}}
+	code, message := observer.ResumeFailure("session_1", errors.New("exit status 1"), "thread/resume failed: already has an active writer")
+	if code != "session_writer_busy" {
+		t.Fatalf("unexpected error code: %q", code)
+	}
+	if !strings.Contains(message, "Codex Desktop") {
+		t.Fatalf("unexpected error message: %q", message)
+	}
+}
+
+func TestStartCommandRequiresObservedCodexDirectory(t *testing.T) {
+	observer := &Observer{sessions: map[string]observation.Session{
+		"session_1": {Agent: observation.AgentCodex, CWD: "C:/work/codex"},
+		"session_2": {Agent: observation.AgentClaudeCode, CWD: "C:/work/claude"},
+	}}
+	t.Setenv("AGENTBOARD_CODEX_BIN", "codex-test")
+	command, err := observer.StartCommand("c:/work/CODEX", "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(command.Args, []string{"codex-test", "exec", "--skip-git-repo-check", "hello"}) {
+		t.Fatalf("unexpected command: %#v", command.Args)
+	}
+	if _, err := observer.StartCommand("C:/work/unknown", "hello"); err == nil {
+		t.Fatal("unobserved directory should be rejected")
+	}
+	if _, err := observer.StartCommand("C:/work/claude", "hello"); err == nil {
+		t.Fatal("non-Codex directory should be rejected")
 	}
 }
 

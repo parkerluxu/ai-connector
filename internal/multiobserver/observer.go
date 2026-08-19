@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -204,15 +205,63 @@ func (o *Observer) ResumeCommand(sessionID, prompt string) (*exec.Cmd, error) {
 	}
 }
 
-func (o *Observer) ResumeFailureMessage(sessionID string, commandErr error, stderr string) string {
+// StartCommand only accepts directories that are already represented by an
+// observed Codex session. The browser never gets to choose an arbitrary local
+// path for process execution.
+func (o *Observer) StartCommand(cwd, prompt string) (*exec.Cmd, error) {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		return nil, errors.New("working directory is required")
+	}
+	normalized := filepath.Clean(cwd)
+	observed := false
+	observedCWD := ""
+	o.mu.RLock()
+	for _, session := range o.sessions {
+		if session.Agent == observation.AgentCodex && session.CWD != "" && sameWorkingDirectory(session.CWD, normalized) {
+			observed = true
+			observedCWD = session.CWD
+			break
+		}
+	}
+	o.mu.RUnlock()
+	if !observed {
+		return nil, errors.New("working directory is not an observed Codex directory")
+	}
+	command := exec.Command(codexBinary(), "exec", "--skip-git-repo-check", prompt)
+	command.Dir = observedCWD
+	return command, nil
+}
+
+func sameWorkingDirectory(left, right string) bool {
+	left, right = filepath.Clean(strings.TrimSpace(left)), filepath.Clean(strings.TrimSpace(right))
+	if os.PathSeparator == '\\' {
+		return strings.EqualFold(left, right)
+	}
+	return left == right || strings.EqualFold(left, right)
+}
+
+func (o *Observer) ResumeFailure(sessionID string, commandErr error, stderr string) (string, string) {
 	session, _ := o.Get(sessionID)
+	if session.Agent == observation.AgentCodex && strings.Contains(strings.ToLower(stderr), "already has an active writer") {
+		return "session_writer_busy", "Codex Desktop still owns this session. Wait briefly or continue it in Codex Desktop."
+	}
 	label := agentLabel(session.Agent)
 	for _, line := range reverseLines(stderr) {
 		if line = strings.TrimSpace(line); line != "" {
-			return label + " resume failed: " + sanitizeDiagnostic(line)
+			return "resume_failed", label + " resume failed: " + sanitizeDiagnostic(line)
 		}
 	}
-	return label + " resume failed: " + commandErr.Error()
+	return "resume_failed", label + " resume failed: " + commandErr.Error()
+}
+
+func (o *Observer) StartFailure(commandErr error, stderr string) (string, string) {
+	for _, line := range reverseLines(stderr) {
+		if line = strings.TrimSpace(line); line != "" {
+			return "start_failed", "Codex start failed: " + sanitizeDiagnostic(line)
+		}
+	}
+	return "start_failed", "Codex start failed: " + commandErr.Error()
 }
 
 func (o *Observer) rebuild() {
