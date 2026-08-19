@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 - 2026-08-19
+
+- Prevented Codex detail views from showing the same user or assistant message twice when JSONL contains both event representations.
+- Added regression coverage for cross-representation deduplication and separate repeated turns.
+
 ## 0.3.0 - 2026-08-19
 
 - Added starting new Codex conversations from an observed working directory.

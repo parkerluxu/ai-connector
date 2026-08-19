@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -20,10 +21,16 @@ const (
 	maxDetailEvents       = 200
 	maxDetailContentRunes = 8_192
 	maxDetailTotalRunes   = 256 * 1024
+	detailDuplicateWindow = time.Second
 )
 
 type DetailEvent = observation.DetailEvent
 type SessionDetail = observation.SessionDetail
+
+type detailCandidate struct {
+	event  DetailEvent
+	source string
+}
 
 // Detail reads a single local JSONL file only when a device owner explicitly
 // asks for it. Its result is never stored in the observer metadata database.
@@ -42,6 +49,7 @@ func (o *Observer) Detail(sessionID string) (SessionDetail, error) {
 	sort.Strings(paths)
 
 	detail := SessionDetail{SessionID: sessionID, Events: make([]DetailEvent, 0, 32)}
+	candidates := make([]detailCandidate, 0, 32)
 	totalRunes := 0
 	for _, path := range paths {
 		file, err := os.Open(path)
@@ -51,16 +59,22 @@ func (o *Observer) Detail(sessionID string) (SessionDetail, error) {
 		scanner := bufio.NewScanner(file)
 		scanner.Buffer(make([]byte, 64*1024), 2*1024*1024)
 		for scanner.Scan() {
-			event, ok := detailEvent(scanner.Bytes(), len(detail.Events)+1)
+			candidate, ok := detailEventWithSource(scanner.Bytes(), len(candidates)+1)
 			if !ok {
 				continue
 			}
-			contentRunes := len([]rune(event.Content))
-			if len(detail.Events) >= maxDetailEvents || totalRunes+contentRunes > maxDetailTotalRunes {
+			if duplicateIndex := findDuplicateCandidate(candidates, candidate); duplicateIndex >= 0 {
+				if candidate.source == "event_msg" {
+					candidates[duplicateIndex] = candidate
+				}
+				continue
+			}
+			contentRunes := len([]rune(candidate.event.Content))
+			if len(candidates) >= maxDetailEvents || totalRunes+contentRunes > maxDetailTotalRunes {
 				detail.Truncated = true
 				continue
 			}
-			detail.Events = append(detail.Events, event)
+			candidates = append(candidates, candidate)
 			totalRunes += contentRunes
 		}
 		err = scanner.Err()
@@ -69,21 +83,31 @@ func (o *Observer) Detail(sessionID string) (SessionDetail, error) {
 			return SessionDetail{}, fmt.Errorf("read session detail: %w", err)
 		}
 	}
-	sort.SliceStable(detail.Events, func(i, j int) bool { return detail.Events[i].At < detail.Events[j].At })
-	for index := range detail.Events {
+	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].event.At < candidates[j].event.At })
+	detail.Events = make([]DetailEvent, len(candidates))
+	for index, candidate := range candidates {
+		detail.Events[index] = candidate.event
 		detail.Events[index].ID = fmt.Sprintf("event_%d", index+1)
 	}
 	return detail, nil
 }
 
 func detailEvent(line []byte, index int) (DetailEvent, bool) {
+	candidate, ok := detailEventWithSource(line, index)
+	if !ok {
+		return DetailEvent{}, false
+	}
+	return candidate.event, true
+}
+
+func detailEventWithSource(line []byte, index int) (detailCandidate, bool) {
 	var event map[string]any
 	if json.Unmarshal(line, &event) != nil {
-		return DetailEvent{}, false
+		return detailCandidate{}, false
 	}
 	payload := mapValue(event["payload"])
 	if payload == nil {
-		return DetailEvent{}, false
+		return detailCandidate{}, false
 	}
 	at := eventTime(event)
 	outerType := stringValue(event["type"])
@@ -120,9 +144,47 @@ func detailEvent(line []byte, index int) (DetailEvent, bool) {
 	}
 	content = sanitizeDetail(content)
 	if kind == "" || content == "" {
-		return DetailEvent{}, false
+		return detailCandidate{}, false
 	}
-	return DetailEvent{ID: fmt.Sprintf("event_%d", index), At: at, Kind: kind, Content: content, ToolName: sanitize(tool, 256)}, true
+	return detailCandidate{
+		event:  DetailEvent{ID: fmt.Sprintf("event_%d", index), At: at, Kind: kind, Content: content, ToolName: sanitize(tool, 256)},
+		source: outerType,
+	}, true
+}
+
+func findDuplicateCandidate(candidates []detailCandidate, candidate detailCandidate) int {
+	if candidate.event.Kind != "user_message" && candidate.event.Kind != "assistant_message" {
+		return -1
+	}
+	for index := len(candidates) - 1; index >= 0; index-- {
+		previous := candidates[index]
+		if previous.event.Kind != candidate.event.Kind || previous.event.Content != candidate.event.Content {
+			continue
+		}
+		if !isCrossRepresentation(previous.source, candidate.source) {
+			continue
+		}
+		previousAt, previousErr := time.Parse(time.RFC3339Nano, previous.event.At)
+		candidateAt, candidateErr := time.Parse(time.RFC3339Nano, candidate.event.At)
+		if previousErr != nil || candidateErr != nil {
+			continue
+		}
+		if absoluteDuration(candidateAt.Sub(previousAt)) <= detailDuplicateWindow {
+			return index
+		}
+	}
+	return -1
+}
+
+func isCrossRepresentation(left, right string) bool {
+	return (left == "event_msg" && right == "response_item") || (left == "response_item" && right == "event_msg")
+}
+
+func absoluteDuration(value time.Duration) time.Duration {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 // Some Windows terminal integrations preserve tool output that has been

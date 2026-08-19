@@ -21,3 +21,33 @@ func TestDetailEventLeavesNormalToolOutputUnchanged(t *testing.T) {
 		t.Fatalf("normal output changed: %q", event.Content)
 	}
 }
+
+func TestFindDuplicateCandidateCollapsesCodexUserRepresentations(t *testing.T) {
+	candidates := []detailCandidate{
+		{event: DetailEvent{At: "2026-08-13T12:00:00.000Z", Kind: "user_message", Content: "hello"}, source: "response_item"},
+	}
+	candidate := detailCandidate{
+		event: DetailEvent{At: "2026-08-13T12:00:00.010Z", Kind: "user_message", Content: "hello"}, source: "event_msg",
+	}
+	if index := findDuplicateCandidate(candidates, candidate); index != 0 {
+		t.Fatalf("expected duplicate at index 0, got %d", index)
+	}
+	candidates[0] = candidate
+	if index := findDuplicateCandidate(candidates, detailCandidate{
+		event: DetailEvent{At: "2026-08-13T12:00:00.020Z", Kind: "user_message", Content: "hello"}, source: "event_msg",
+	}); index != -1 {
+		t.Fatalf("same-source user messages must remain distinct, got %d", index)
+	}
+}
+
+func TestFindDuplicateCandidateKeepsSeparateTurns(t *testing.T) {
+	previous := detailCandidate{
+		event: DetailEvent{At: "2026-08-13T12:00:00.000Z", Kind: "assistant_message", Content: "hello"}, source: "event_msg",
+	}
+	candidate := detailCandidate{
+		event: DetailEvent{At: "2026-08-13T12:00:02.000Z", Kind: "assistant_message", Content: "hello"}, source: "response_item",
+	}
+	if index := findDuplicateCandidate([]detailCandidate{previous}, candidate); index != -1 {
+		t.Fatalf("separate assistant turns must remain distinct, got %d", index)
+	}
+}

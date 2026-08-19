@@ -199,6 +199,7 @@ func TestObserverDetailReadsOnlySupportedContentEvents(t *testing.T) {
 	}
 	data := "{\"timestamp\":\"2026-08-12T09:00:00Z\",\"type\":\"session_meta\",\"payload\":{\"session_id\":\"sess_detail\",\"cwd\":\"C:/work\"}}\n" +
 		"{\"timestamp\":\"2026-08-12T09:00:01Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"Please inspect this task\"}}\n" +
+		"{\"timestamp\":\"2026-08-12T09:00:01.010Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Please inspect this task\"}]}}\n" +
 		"{\"timestamp\":\"2026-08-12T09:00:02Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"shell_command\",\"arguments\":\"{\\\"command\\\":\\\"dir\\\"}\"}}\n" +
 		"{\"timestamp\":\"2026-08-12T09:00:03Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call_output\",\"output\":\"file list\"}}\n" +
 		"{\"timestamp\":\"2026-08-12T09:00:04Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"reasoning\",\"encrypted_content\":\"must not be exposed\"}}\n"
