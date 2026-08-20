@@ -1,18 +1,32 @@
 # AI Connector 中文使用说明
 
+<p align="center">
+  <a href="https://github.com/parkerluxu/ai-connector/stargazers"><img src="https://img.shields.io/github/stars/parkerluxu/ai-connector?style=flat-square&logo=github&label=Stars" alt="GitHub stars" /></a>
+  <a href="https://github.com/parkerluxu/ai-connector/network/members"><img src="https://img.shields.io/github/forks/parkerluxu/ai-connector?style=flat-square&logo=github&label=Forks" alt="GitHub forks" /></a>
+  <a href="https://github.com/parkerluxu/ai-connector/commits/main"><img src="https://img.shields.io/github/last-commit/parkerluxu/ai-connector?style=flat-square&logo=git&label=Updated" alt="Last commit" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-0f766e?style=flat-square" alt="MIT License" /></a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Focus-AI%20agent%20monitoring-0f766e?style=flat-square" alt="Focus: AI agent monitoring" />
+  <img src="https://img.shields.io/badge/Agents-Codex%20%7C%20Claude%20Code%20%7C%20Gemini%20CLI-2563eb?style=flat-square" alt="Supported agents: Codex, Claude Code, and Gemini CLI" />
+  <img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20Linux-7c3aed?style=flat-square" alt="Platforms: Windows and Linux" />
+  <img src="https://img.shields.io/badge/Format-Go-111827?style=flat-square&logo=go" alt="Built with Go" />
+</p>
+
 AI Connector 是运行在 AI Agent CLI 所在电脑上的本地连接器。它读取本机 Codex、
 Claude Code 和 Gemini CLI 会话日志，提取会话状态，并通过加密的出站 WebSocket
-发送到 [AgentBoard 看板](https://aiboard.agentcaseshare.cn/)，让你在浏览器中查看实时会话。
+发送到 [ai-board 看板](https://aiboard.agentcaseshare.cn/)，让你在浏览器中查看实时会话。
 它不是这些工具的替代品，也不会把本地终端暴露成公网服务。支持的适配器、续聊语义和
 隐私边界见 [`docs/architecture/multi-agent-observation.md`](docs/architecture/multi-agent-observation.md)。
 
 本文对应当前公开版本的实际流程：Agent Case Share 负责账号登录/注册，
-AgentBoard 负责设备配对和实时看板，AI Connector 负责本地观察与连接。
+ai-board 负责设备配对和实时看板，AI Connector 负责本地观察与连接。
 
 ## 一分钟看懂流程
 
 ```text
-浏览器打开 AgentBoard
+浏览器打开 ai-board
     ↓
 Agent Case Share 登录或注册（统一账号）
     ↓
@@ -73,13 +87,13 @@ Codex session 目录：
 .\ai-connector.exe doctor
 ```
 
-## 1. 登录或注册 AgentBoard
+## 1. 登录或注册 ai-board
 
 1. 打开 [https://aiboard.agentcaseshare.cn/](https://aiboard.agentcaseshare.cn/)。
 2. 未登录时会看到 **登录** 和 **注册** 两个入口。
 3. 点击 **登录**，使用已有的 Agent Case Share 账号完成授权；首次使用点击
    **注册**，注册页面仍由 Agent Case Share 提供。
-4. 授权完成后会自动返回 AgentBoard。看板不会创建第二套密码账号，浏览器
+4. 授权完成后会自动返回 ai-board。看板不会创建第二套密码账号，浏览器
    使用看板自己的 HttpOnly 会话保持登录。
 
 如果页面反复回到登录页，先确认浏览器允许该站点 Cookie，并检查系统时间和
@@ -249,7 +263,7 @@ ai-connector service uninstall
 
 ## 相关链接
 
-- [AgentBoard 看板](https://aiboard.agentcaseshare.cn/)
+- [ai-board 看板](https://aiboard.agentcaseshare.cn/)
 - [使用 AI Connector 监控 Codex、Claude Code 和 Gemini CLI 的详细教程](docs/guides/using-ai-connector-with-agentboard.zh-CN.md)
 - [英文 README](README.md)
 - [隐私说明](PRIVACY.md)

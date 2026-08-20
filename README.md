@@ -1,24 +1,38 @@
 # AI Connector
 
+<p align="center">
+  <a href="https://github.com/parkerluxu/ai-connector/stargazers"><img src="https://img.shields.io/github/stars/parkerluxu/ai-connector?style=flat-square&logo=github&label=Stars" alt="GitHub stars" /></a>
+  <a href="https://github.com/parkerluxu/ai-connector/network/members"><img src="https://img.shields.io/github/forks/parkerluxu/ai-connector?style=flat-square&logo=github&label=Forks" alt="GitHub forks" /></a>
+  <a href="https://github.com/parkerluxu/ai-connector/commits/main"><img src="https://img.shields.io/github/last-commit/parkerluxu/ai-connector?style=flat-square&logo=git&label=Updated" alt="Last commit" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-0f766e?style=flat-square" alt="MIT License" /></a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Focus-AI%20agent%20monitoring-0f766e?style=flat-square" alt="Focus: AI agent monitoring" />
+  <img src="https://img.shields.io/badge/Agents-Codex%20%7C%20Claude%20Code%20%7C%20Gemini%20CLI-2563eb?style=flat-square" alt="Supported agents: Codex, Claude Code, and Gemini CLI" />
+  <img src="https://img.shields.io/badge/Platforms-Windows%20%7C%20Linux-7c3aed?style=flat-square" alt="Platforms: Windows and Linux" />
+  <img src="https://img.shields.io/badge/Format-Go-111827?style=flat-square&logo=go" alt="Built with Go" />
+</p>
+
 [中文使用说明](README.zh-CN.md) · [Privacy](PRIVACY.md) · [Security](SECURITY.md)
 
 AI Connector runs on the computer where AI agent CLIs are installed. It reads
 local Codex, Claude Code, and Gemini CLI session logs, derives session state,
-and sends it over an encrypted outbound WebSocket to the [AgentBoard dashboard](https://aiboard.agentcaseshare.cn/).
+and sends it over an encrypted outbound WebSocket to the [ai-board dashboard](https://aiboard.agentcaseshare.cn/).
 It is a companion to those tools, not a replacement, and it never exposes a
 local terminal as a public service. The supported adapters, resume behavior,
 and privacy constraints are documented in
 [`docs/architecture/multi-agent-observation.md`](docs/architecture/multi-agent-observation.md).
 
 This guide describes the public production flow: Agent Case Share manages
-account sign-in and registration, AgentBoard manages device pairing and the
+account sign-in and registration, ai-board manages device pairing and the
 real-time dashboard, and AI Connector observes and connects from the local
 machine.
 
 ## End-to-End Flow
 
 ```text
-Open AgentBoard in a browser
+Open ai-board in a browser
     -> Sign in or register with Agent Case Share
     -> Generate a 10-minute, one-time pairing code from Devices
     -> Run ai-connector pair --code <pairing-code> on the Codex computer
@@ -82,7 +96,7 @@ the current pairing state, and the local Codex sessions directory:
    **Register** for a new account.
 3. Complete the Agent Case Share authorization flow. The registration screen is
    provided by Agent Case Share.
-4. You are returned to AgentBoard automatically. AgentBoard does not create a
+4. You are returned to ai-board automatically. ai-board does not create a
    second password account; the browser receives its own HttpOnly dashboard
    session.
 
@@ -234,10 +248,10 @@ When the device owner explicitly selects **View details**, the Connector reads
 a bounded portion of that local session's messages, tool calls, and tool
 results and relays it through the current authenticated real-time connection to
 the owner's browser. Details are not written to the Connector metadata or the
-AgentBoard server database, and they are not retained as a dashboard history.
+ai-board server database, and they are not retained as a dashboard history.
 
 The following data is never part of default status synchronization and is never
-persisted in the AgentBoard database:
+persisted in the ai-board database:
 
 - Reasoning content or raw JSONL lines.
 - Local file contents.
@@ -274,7 +288,7 @@ new computer, install the Connector, generate a new pairing code, and run
 
 ## Links
 
-- [AgentBoard dashboard](https://aiboard.agentcaseshare.cn/)
+- [ai-board dashboard](https://aiboard.agentcaseshare.cn/)
 - [Detailed tutorial: monitor Codex, Claude Code, and Gemini CLI with AI Connector](docs/guides/using-ai-connector-with-agentboard.en.md)
 - [Chinese README](README.zh-CN.md)
 - [Privacy](PRIVACY.md)
